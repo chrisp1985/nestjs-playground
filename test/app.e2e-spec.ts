@@ -4,6 +4,9 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
 import { setupSwagger } from './../src/swagger.js';
+import { PlayersService } from '../src/players/players.service.js';
+import { HealthCheckService } from '@nestjs/terminus';
+import { ServiceUnavailableException } from '@nestjs/common';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -44,6 +47,142 @@ describe('AppController (e2e)', () => {
       club: 'Chelsea',
       nationality: 'England',
     };
+
+    //## Global Error Handling Checks ##
+
+    it('returns a consistent error response for missing players', async () => {
+        const response = await request(app.getHttpServer())
+          .get('/players/99999')
+          .expect(404);
+
+        expect(response.body).toMatchObject({
+          statusCode: 404,
+          error: 'Not Found',
+          message: 'Player 99999 not found',
+          path: '/players/99999',
+          requestId: expect.any(String),
+        });
+
+        expect(response.body.requestId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      },
+    );
+
+    it('preserves validation error messages', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/players')
+        .query({ sort: 'invalid', limit: 500 })
+        .expect(400);
+
+      expect(response.body).toMatchObject({
+        statusCode: 400,
+        error: 'Bad Request',
+        path: '/players',
+        requestId: expect.any(String),
+      });
+
+      expect(response.body.message).toEqual(
+        expect.arrayContaining([
+          expect.any(String),
+        ]),
+      );
+    });    
+
+    it('does not expose unexpected errors', async () => {
+      const moduleFixture = await Test.createTestingModule({
+        imports: [AppModule],
+      })
+        .overrideProvider(PlayersService)
+        .useValue({
+          findAll: () => {
+            throw new Error('SECRET_DATABASE_PASSWORD');
+          },
+        })
+        .compile();
+
+      const testApp = moduleFixture.createNestApplication();
+
+      try {
+        await testApp.init();
+        const response = await request(testApp.getHttpServer())
+          .get('/players')
+          .expect(500);
+
+        expect(response.body).toMatchObject({
+          statusCode: 500,
+          error: 'Internal Server Error',
+          message: 'Internal server error',
+          path: '/players',
+          requestId: expect.any(String),
+        });
+
+        expect(response.body.requestId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+
+        expect(JSON.stringify(response.body)).not.toContain(
+          'SECRET_DATABASE_PASSWORD',
+        );
+      } finally {
+        await testApp.close();
+      }
+    });
+
+    it('returns service unavailable when the status is down.', async () => {
+      const moduleFixture = await Test.createTestingModule({
+        imports: [AppModule],
+      })
+      .overrideProvider(HealthCheckService)
+      .useValue({
+        check: () => {
+          throw new ServiceUnavailableException({
+            status: 'error',
+            info: {},
+            error: {
+              database: { status: 'down' },
+            },
+            details: {
+              database: { status: 'down', internalConnectionString: 'SECRET_DB_HOST' },
+            },
+          });
+        },
+      })
+      .compile();
+      const testApp = moduleFixture.createNestApplication();
+
+      try {
+        await testApp.init();
+        const response = await request(testApp.getHttpServer())
+          .get('/health/ready')
+          .expect(503);
+
+        expect(response.body).toMatchObject({
+          status: 'error',
+          info: {},
+          error: {
+            database: {
+              status: 'down',
+            },
+          },
+          details: {
+            database: {
+              status: 'down',
+            },
+          },
+        });
+
+        expect(JSON.stringify(response.body)).not.toContain(
+          'SECRET_DB_HOST',
+        );
+        
+      } finally {
+        await testApp.close();
+      }
+      
+    });
+
+    //## Endpoint Checks ##
 
     it('GET returns the first page of players', async () => {
       const response = await request(app.getHttpServer())
@@ -91,13 +230,14 @@ describe('AppController (e2e)', () => {
         .post('/players')
         .send(newPlayer)
         .expect(201);
-      expect(created.body).toEqual({
-        playerNo: expect.any(Number),
-        ...newPlayer,
-      });
       const id = created.body.playerNo;
-
+      
       try {
+        expect(created.body).toEqual({
+          playerNo: expect.any(Number),
+          ...newPlayer,
+        });
+
         await request(server)
           .patch(`/players/${id}`)
           .send({ rating: 8.9 })

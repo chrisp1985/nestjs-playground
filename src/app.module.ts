@@ -1,6 +1,6 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigType } from '@nestjs/config';
-import { APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -9,6 +9,7 @@ import { envValidationSchema } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
 import { Player } from './players/player.entity.js';
 import { PlayersModule } from './players/players.module.js';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 
 @Module({
   imports: [
@@ -47,6 +48,10 @@ import { PlayersModule } from './players/players.module.js';
         forbidNonWhitelisted: true,
         transform: true,
       }),
+    },
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
     },
   ],
 })
