@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nestjs-playground
+  labels:
+    app.kubernetes.io/name: nestjs-playground
+spec:
+  selector:
+    app.kubernetes.io/name: nestjs-playground
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

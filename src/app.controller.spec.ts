@@ -15,8 +15,8 @@ describe('AppController', () => {
   });
 
   describe('status', () => {
-    it('should return "UP"', () => {
-      expect(appController.getStatus()).toBe('UP');
+    it('should return { status: "up" }', () => {
+      expect(appController.getStatus()).toEqual({ status: 'up' });
     });
   });
 });

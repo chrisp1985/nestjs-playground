@@ -4,5 +4,7 @@ CREATE TABLE player (
     name VARCHAR(255),
     age INTEGER,
     rating DECIMAL(10,1),
-    position VARCHAR(255)
+    position VARCHAR(255),
+    club VARCHAR(255),
+    nationality VARCHAR(255)
 );

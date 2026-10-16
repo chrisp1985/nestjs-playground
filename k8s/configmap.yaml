@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nestjs-playground-config
+  labels:
+    app.kubernetes.io/name: nestjs-playground
+data:
+  PORT: "8082"
+  DB_HOST: postgres # change to your Postgres service / managed DB hostname
+  DB_PORT: "5432"
+  DB_NAME: players

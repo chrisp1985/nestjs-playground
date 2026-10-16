@@ -1,0 +1,19 @@
+# Keep the build context small and free of local state/secrets.
+node_modules
+dist
+coverage
+*.tsbuildinfo
+*.log
+.env
+.env.*
+.git
+.gitignore
+.idea
+.vscode
+Dockerfile
+.dockerignore
+docker-compose.yml
+k8s
+db
+test
+README.md

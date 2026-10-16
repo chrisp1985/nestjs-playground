@@ -1,26 +1,53 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { ConfigModule, ConfigType } from '@nestjs/config';
+import { APP_PIPE } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { databaseConfig } from './config/database.config.js';
+import { envValidationSchema } from './config/env.validation.js';
+import { HealthModule } from './health/health.module.js';
 import { Player } from './players/player.entity.js';
 import { PlayersModule } from './players/players.module.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST ?? 'localhost',
-      port: Number(process.env.DB_PORT ?? 5433),
-      database: process.env.DB_NAME ?? 'players',
-      username: process.env.DB_USER ?? 'appuser',
-      password: process.env.DB_PASSWORD ?? 'mypassword',
-      entities: [Player],
-      // Schema is owned by db/init SQL scripts, not TypeORM.
-      synchronize: false,
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      load: [databaseConfig],
+      validationSchema: envValidationSchema,
     }),
+    TypeOrmModule.forRootAsync({
+      inject: [databaseConfig.KEY],
+      useFactory: (db: ConfigType<typeof databaseConfig>) => ({
+        type: 'postgres',
+        host: db.host,
+        port: db.port,
+        database: db.name,
+        username: db.user,
+        password: db.password,
+        entities: [Player],
+        // pg returns BIGINT as a string by default; ids fit safely in a JS number.
+        parseInt8: true,
+        synchronize: false,
+      }),
+    }),
+    HealthModule,
     PlayersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Registered here rather than in main.ts so e2e tests get the same validation.
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    },
+  ],
 })
 export class AppModule {}
