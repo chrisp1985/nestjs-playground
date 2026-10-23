@@ -29,7 +29,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const message = extractMessage(exception);
-    const requestId = randomUUID();
+    const requestId = request.requestId ?? randomUUID();
+    response.setHeader('X-Request-ID', requestId);
 
     // Log unexpected errors without exposing them to clients.
     if (!(exception instanceof HttpException)) {

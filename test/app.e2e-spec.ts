@@ -50,6 +50,38 @@ describe('AppController (e2e)', () => {
 
     //## Global Error Handling Checks ##
 
+    it('adds a correlation ID to successful requests', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/players')
+        .expect(200);
+
+      const requestId = response.headers['x-request-id'];
+      
+      expect(requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+    });
+
+    it('creates a unique request ID for each request', async () => {
+      const response1 = await request(app.getHttpServer())
+        .get('/players')
+        .expect(200);
+
+      const response2 = await request(app.getHttpServer())
+        .get('/players')
+        .expect(200);  
+      
+      expect(response1.headers['x-request-id']).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+
+      expect(response2.headers['x-request-id']).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+
+      expect(response2.headers['x-request-id']).not.toBe(response1.headers['x-request-id']);
+    });    
+
     it('returns a consistent error response for missing players', async () => {
         const response = await request(app.getHttpServer())
           .get('/players/99999')
@@ -66,6 +98,9 @@ describe('AppController (e2e)', () => {
         expect(response.body.requestId).toMatch(
           /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
         );
+
+        const headerRequestId = response.headers['x-request-id'];
+        expect(headerRequestId).toBe(response.body.requestId);
       },
     );
 
