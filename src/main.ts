@@ -5,7 +5,12 @@ import { setupSwagger } from './swagger.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  // Close the HTTP server and DB pool cleanly on SIGTERM (e.g. Kubernetes pod shutdown).
+  
+  app.enableCors({
+    origin: "http://localhost:5173",
+    methods: ["GET"],
+  });
+
   app.enableShutdownHooks();
   setupSwagger(app);
   const config = app.get(ConfigService);
