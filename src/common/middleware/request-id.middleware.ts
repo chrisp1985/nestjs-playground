@@ -24,9 +24,6 @@ export class RequestIdMiddleware implements NestMiddleware {
 
     res.on('finish', () => {
         const duration = Date.now() - start;
-
-        // TODO: Log HTTP method, path, final status,
-        // duration and request ID.
         this.logger.log(
             `${req.method} ${req.path} ` +
             `status=${res.statusCode} ` +

@@ -52,6 +52,7 @@ export class PlayersService {
   }
 
   async remove(playerNo: number): Promise<void> {
+    await delay(5000); // Artifical delay to test deleting button state.
     const result = await this.playerRepository.delete({ playerNo });
     if (!result.affected) {
       throw new NotFoundException(`Player ${playerNo} not found`);
@@ -96,4 +97,8 @@ function range(min?: number, max?: number): FindOperator<number> | undefined {
 // Treat user input literally rather than as LIKE wildcards.
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function delay(ms:number) {
+  return new Promise( resolve => setTimeout(resolve, ms));
 }
