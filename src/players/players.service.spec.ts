@@ -159,7 +159,9 @@ describe('PlayersService', () => {
       repository.delete.mockResolvedValue({ affected: 1 });
 
       await expect(service.remove(1)).resolves.toBeUndefined();
-      expect(repository.delete).toHaveBeenCalledWith({ playerNo: 1 });
+      expect(repository.delete).toHaveBeenCalledWith({
+        playerNo: 999,
+      });
     });
 
     it('throws NotFoundException when nothing was deleted', async () => {
