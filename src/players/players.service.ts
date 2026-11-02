@@ -52,7 +52,7 @@ export class PlayersService {
   }
 
   async remove(playerNo: number): Promise<void> {
-    await delay(5000); // Artifical delay to test deleting button state.
+    // await delay(5000); // Artifical delay to test deleting button state.
     const result = await this.playerRepository.delete({ playerNo });
     if (!result.affected) {
       throw new NotFoundException(`Player ${playerNo} not found`);
