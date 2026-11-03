@@ -13,6 +13,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
     }),
     HealthModule,
     PlayersModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [
