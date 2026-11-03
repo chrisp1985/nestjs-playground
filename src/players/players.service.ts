@@ -15,12 +15,14 @@ import { Paginated } from './dto/paginated.dto.js';
 import { PlayerQueryDto, SortField } from './dto/player-query.dto.js';
 import { UpdatePlayerDto } from './dto/update-player.dto.js';
 import { Player } from './player.entity.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 
 @Injectable()
 export class PlayersService {
   constructor(
     @InjectRepository(Player)
     private readonly playerRepository: Repository<Player>,
+    private readonly metricsService: MetricsService,
   ) {}
 
   async findAll(query: PlayerQueryDto): Promise<Paginated<Player>> {
@@ -42,8 +44,11 @@ export class PlayersService {
     return player;
   }
 
-  create(dto: CreatePlayerDto): Promise<Player> {
-    return this.playerRepository.save(this.playerRepository.create(dto));
+  async create(dto: CreatePlayerDto): Promise<Player> {
+    const player = this.playerRepository.create(dto);
+    const savedPlayer = await this.playerRepository.save(player);
+    this.metricsService.playersCreated.inc();
+    return savedPlayer;
   }
 
   async update(playerNo: number, dto: UpdatePlayerDto): Promise<Player> {
@@ -57,6 +62,7 @@ export class PlayersService {
     if (!result.affected) {
       throw new NotFoundException(`Player ${playerNo} not found`);
     }
+    this.metricsService.playersDeleted.inc();
   }
 
   private buildWhere(query: PlayerQueryDto): FindOptionsWhere<Player> {

@@ -6,6 +6,7 @@ import { CreatePlayerDto } from './dto/create-player.dto.js';
 import { PlayerQueryDto } from './dto/player-query.dto.js';
 import { Player } from './player.entity.js';
 import { PlayersService } from './players.service.js';
+import { MetricsService } from '../metrics/metrics.service.js';
 
 describe('PlayersService', () => {
   const kane: Player = {
@@ -17,6 +18,17 @@ describe('PlayersService', () => {
     club: 'Bayern Munich',
     nationality: 'England',
   };
+
+  const dowman: Player = {
+    playerNo: 2,
+    name: 'Max Dowman',
+    age: 16,
+    rating: 7.8,
+    position: 'MF',
+    club: 'Arsenal',
+    nationality: 'England',
+  };
+
   const repository = {
     findAndCount: vi.fn(),
     findOneBy: vi.fn(),
@@ -28,6 +40,7 @@ describe('PlayersService', () => {
     delete: vi.fn(),
   };
   let service: PlayersService;
+  let metrics: MetricsService;
 
   const query = (overrides: Partial<PlayerQueryDto> = {}) =>
     Object.assign(new PlayerQueryDto(), overrides);
@@ -37,11 +50,15 @@ describe('PlayersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PlayersService,
+        { provide: MetricsService, useValue: { 
+          playersCreated: { inc: vi.fn()}, 
+          playersDeleted: { inc: vi.fn()}}},
         { provide: getRepositoryToken(Player), useValue: repository },
       ],
     }).compile();
 
     service = module.get(PlayersService);
+    metrics = module.get(MetricsService);
   });
 
   describe('findAll', () => {
@@ -124,15 +141,7 @@ describe('PlayersService', () => {
 
       await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
     });
-  });
-
-  it('create saves a new entity', async () => {
-    const { playerNo: _, ...rest } = kane;
-    const dto = rest as CreatePlayerDto;
-
-    await expect(service.create(dto)).resolves.toEqual(dto);
-    expect(repository.save).toHaveBeenCalledWith(dto);
-  });
+  }); 
 
   describe('update', () => {
     it('merges changes into the existing player', async () => {
@@ -154,18 +163,45 @@ describe('PlayersService', () => {
     });
   });
 
+  describe('create', () => {
+    it('create saves a new entity', async () => {
+      const { playerNo: _, ...rest } = kane;
+      const dto = rest as CreatePlayerDto;  
+
+      await expect(service.create(dto)).resolves.toEqual(dto);
+      expect(repository.save).toHaveBeenCalledWith(dto);
+      expect(metrics.playersCreated.inc).toHaveBeenCalledOnce();
+    });
+
+    it('does not increment the metric if saving fails', async () => {
+      const { playerNo: _, ...rest } = dowman;
+      const dto = rest as CreatePlayerDto;  
+
+      vi.mocked(repository.save)
+        .mockRejectedValueOnce(new Error('Database unavailable'));
+
+      await expect(
+        service.create(dto),
+      ).rejects.toThrow('Database unavailable');
+
+      expect(metrics.playersCreated.inc).not.toHaveBeenCalled();
+    });     
+  });
+
   describe('remove', () => {
     it('deletes the player', async () => {
       repository.delete.mockResolvedValue({ affected: 1 });
 
       await expect(service.remove(1)).resolves.toBeUndefined();
       expect(repository.delete).toHaveBeenCalledWith({ playerNo: 1 });
+          expect(metrics.playersDeleted.inc).toHaveBeenCalledOnce();
     });
 
     it('throws NotFoundException when nothing was deleted', async () => {
       repository.delete.mockResolvedValue({ affected: 0 });
 
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+      expect(metrics.playersDeleted.inc).not.toHaveBeenCalled();
     });
   });
 });
