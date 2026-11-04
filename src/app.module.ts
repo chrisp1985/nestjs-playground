@@ -11,9 +11,8 @@ import { Player } from './players/player.entity.js';
 import { PlayersModule } from './players/players.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
-import { APP_INTERCEPTOR } from '@nestjs/core';
-import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js';
 import { MetricsModule } from './metrics/metrics.module.js';
+import { ScoutingModule } from './scouting/scouting.module.js';
 
 @Module({
   imports: [
@@ -41,6 +40,7 @@ import { MetricsModule } from './metrics/metrics.module.js';
     HealthModule,
     PlayersModule,
     MetricsModule,
+    ScoutingModule
   ],
   controllers: [AppController],
   providers: [
