@@ -19,7 +19,7 @@ resource "aws_lightsail_instance" "app" {
   availability_zone = "eu-west-2a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "small_3_0"
-  user_data         = <<-EOT
+  user_data = replace(<<-EOT
     cat > /tmp/nestjs-bootstrap.sh <<'BOOTSTRAP_SCRIPT'
     ${replace(file("${path.module}/bootstrap.sh"), "__DEPLOY_COMMIT__", var.deploy_commit)}
     BOOTSTRAP_SCRIPT
@@ -27,6 +27,7 @@ resource "aws_lightsail_instance" "app" {
     chmod 700 /tmp/nestjs-bootstrap.sh
     /bin/bash /tmp/nestjs-bootstrap.sh
   EOT
+  , "\r", "")
 
   tags = {
     Project     = "nestjs-playground"
