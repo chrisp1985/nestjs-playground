@@ -21,6 +21,7 @@ systemctl enable --now docker
 # Download deployment configuration
 APP_DIR=/opt/nestjs-playground
 DEPLOY_COMMIT="__DEPLOY_COMMIT__"
+PUBLIC_HOSTNAME="__PUBLIC_IP__.sslip.io"
 
 mkdir -p "$APP_DIR"
 
@@ -53,6 +54,9 @@ chmod 600 "$APP_DIR/.env.runtime"
 printf 'DEPLOY_COMMIT=%s\n' "$DEPLOY_COMMIT" \
   >> "$APP_DIR/.env.runtime"
 
+printf 'PUBLIC_HOSTNAME=%s\n' "$PUBLIC_HOSTNAME" \
+  >> "$APP_DIR/.env.runtime"
+  
 # Start the application
 cd "$APP_DIR"
 

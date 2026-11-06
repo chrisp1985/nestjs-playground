@@ -14,14 +14,27 @@ provider "aws" {
   region = "eu-west-2"
 }
 
+locals {
+  bootstrap_script = replace(
+    replace(
+      file("${path.module}/bootstrap.sh"),
+      "__DEPLOY_COMMIT__",
+      var.deploy_commit
+    ),
+    "__PUBLIC_IP__",
+    aws_lightsail_static_ip.app.ip_address
+  )
+}
+
 resource "aws_lightsail_instance" "app" {
   name              = "nestjs-playground"
   availability_zone = "eu-west-2a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "small_3_0"
+
   user_data = replace(<<-EOT
     cat > /tmp/nestjs-bootstrap.sh <<'BOOTSTRAP_SCRIPT'
-    ${replace(file("${path.module}/bootstrap.sh"), "__DEPLOY_COMMIT__", var.deploy_commit)}
+    ${local.bootstrap_script}
     BOOTSTRAP_SCRIPT
 
     chmod 700 /tmp/nestjs-bootstrap.sh
