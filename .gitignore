@@ -22,3 +22,10 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/*.tfvars

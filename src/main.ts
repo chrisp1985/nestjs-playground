@@ -5,15 +5,18 @@ import { setupSwagger } from './swagger.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
+  const config = app.get(ConfigService);
+
   app.enableCors({
-    origin: "http://localhost:5173",
-    methods: ["GET", "DELETE"],
+    origin: config.getOrThrow<string>('CORS_ORIGIN'),
+    methods: ['GET', 'DELETE'],
   });
 
   app.enableShutdownHooks();
   setupSwagger(app);
-  const config = app.get(ConfigService);
-  await app.listen(config.getOrThrow<number>('PORT'));
+  await app.listen(
+    config.getOrThrow<number>('PORT'),
+    '0.0.0.0',
+  );
 }
 await bootstrap();
