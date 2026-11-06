@@ -9,6 +9,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U appuser -d players"]
       interval: 5s
@@ -16,7 +17,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/chrisp1985/nestjs-playground:latest
+    image: ghcr.io/chrisp1985/nestjs-playground:sha-b2490253781894f10fde992c275fc0d04742e541
     restart: unless-stopped
     ports:
       - "127.0.0.1:8082:8082"

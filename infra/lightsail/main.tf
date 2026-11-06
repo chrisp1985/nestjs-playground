@@ -19,7 +19,11 @@ resource "aws_lightsail_instance" "app" {
   availability_zone = "eu-west-2a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "small_3_0"
-  user_data         = file("${path.module}/bootstrap.sh")
+  user_data = replace(
+    file("${path.module}/bootstrap.sh"),
+    "__DEPLOY_COMMIT__",
+    var.deploy_commit
+  )
 
   tags = {
     Project     = "nestjs-playground"
