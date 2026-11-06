@@ -1,4 +1,11 @@
 35-178-124-114.sslip.io {
     encode zstd gzip
+
+    @destructive {
+        method DELETE POST PUT PATCH
+    }
+
+    respond @destructive "Method not allowed" 405
+
     reverse_proxy api:8082
 }
