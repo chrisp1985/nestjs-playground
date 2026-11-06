@@ -17,7 +17,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/chrisp1985/nestjs-playground:sha-b2490253781894f10fde992c275fc0d04742e541
+    image: ghcr.io/chrisp1985/nestjs-playground:sha-${DEPLOY_COMMIT:?DEPLOY_COMMIT is required}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8082:8082"
@@ -34,5 +34,20 @@ services:
       postgres:
         condition: service_healthy
 
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/lightsail/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:
