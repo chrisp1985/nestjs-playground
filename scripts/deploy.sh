@@ -1,42 +1,63 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+APP_DIR=/opt/nestjs-playground
+ENV_FILE="$APP_DIR/.env.runtime"
 
-echo "Fetching latest code..."
-git fetch origin main
+DEPLOY_COMMIT="${1:?Supply a Git commit SHA}"
 
-echo "Checking for uncommitted changes..."
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "Working tree is not clean. Aborting."
+if [[ ! "$DEPLOY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid Git commit SHA"
   exit 1
 fi
 
-echo "Updating repository..."
-git merge --ff-only origin/main
+cd "$APP_DIR"
 
-echo "Validating Docker Compose..."
-sudo docker compose \
-  -f docker-compose.prod.yml \
+# Update the selected application version
+sed -i \
+  "s/^DEPLOY_COMMIT=.*/DEPLOY_COMMIT=$DEPLOY_COMMIT/" \
+  "$ENV_FILE"
+
+# Read the hostname from runtime configuration
+PUBLIC_HOSTNAME=$(
+  grep '^PUBLIC_HOSTNAME=' "$ENV_FILE" |
+  cut -d= -f2-
+)
+
+if [[ -z "$PUBLIC_HOSTNAME" ]]; then
+  echo "PUBLIC_HOSTNAME is missing"
+  exit 1
+fi
+
+echo "Validating Compose configuration..."
+docker compose \
+  --env-file "$ENV_FILE" \
+  -f compose.prod.yaml \
   config --quiet
 
-echo "Building and deploying NestJS..."
-sudo docker compose \
-  -f docker-compose.prod.yml \
-  up -d --build --no-deps api
+echo "Pulling application image..."
+docker compose \
+  --env-file "$ENV_FILE" \
+  -f compose.prod.yaml \
+  pull api
+
+echo "Deploying application..."
+docker compose \
+  --env-file "$ENV_FILE" \
+  -f compose.prod.yaml \
+  up -d --no-deps api
 
 echo "Checking readiness..."
-for attempt in {1..15}; do
-  if curl --fail --silent \
-    https://35-178-124-114.sslip.io/health/ready \
-    > /dev/null; then
-    echo "Deployment healthy!"
+for attempt in {1..30}; do
+  if curl --fail --silent --show-error \
+    "https://${PUBLIC_HOSTNAME}/health/ready" \
+    -o /dev/null; then
+    echo "Deployment healthy: $DEPLOY_COMMIT"
     exit 0
   fi
 
-  sleep 2
+  sleep 3
 done
 
-echo "Deployment readiness check failed."
+echo "Deployment readiness check failed"
 exit 1
