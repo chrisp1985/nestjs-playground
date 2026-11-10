@@ -1,6 +1,6 @@
 # nestjs-playground
 
-A small [NestJS](https://nestjs.com) backend web service for experimenting with Nest. It exposes health-style status endpoints and a player CRUD API backed by PostgreSQL, with filtering, sorting, pagination, request validation and Swagger docs. The database is seeded with the same base set of World Cup player data used by the `springbootplay` project.
+This is a small [NestJS](https://nestjs.com) backend web service for me to experiment with Nest. It exposes health-style status endpoints and a player CRUD API backed by PostgreSQL, with filtering, sorting, pagination, request validation and Swagger docs. The database is seeded with the same base set of World Cup player data used by the `springbootplay` project.
 
 ## Tech stack
 
@@ -219,14 +219,15 @@ Stop the service with `Ctrl+C`.
 
 All settings are environment variables, loaded with [`@nestjs/config`](https://docs.nestjs.com/techniques/configuration) and validated at startup (`src/config/env.validation.ts`). If a required variable is missing or invalid, the app refuses to start and names the variable.
 
-| Variable      | Required | Default | Purpose           |
-| ------------- | -------- | ------- | ----------------- |
-| `PORT`        | no       | `8082`  | HTTP port         |
-| `DB_HOST`     | yes      |         | Postgres host     |
-| `DB_PORT`     | no       | `5432`  | Postgres port     |
-| `DB_NAME`     | yes      |         | Database name     |
-| `DB_USER`     | yes      |         | Database user     |
-| `DB_PASSWORD` | yes      |         | Database password |
+| Variable      | Required | Default                 | Purpose                                       |
+| ------------- | -------- | ----------------------- | --------------------------------------------- |
+| `PORT`        | no       | `8082`                  | HTTP port                                     |
+| `DB_HOST`     | yes      |                         | Postgres host                                 |
+| `DB_PORT`     | no       | `5432`                  | Postgres port                                 |
+| `DB_NAME`     | yes      |                         | Database name                                 |
+| `DB_USER`     | yes      |                         | Database user                                 |
+| `DB_PASSWORD` | yes      |                         | Database password                             |
+| `CORS_ORIGIN` | no       | `http://localhost:5173` | Origin allowed to call the API from a browser |
 
 **Local development:** copy `.env.example` to `.env`. Its values match `docker-compose.yml`. `.env` is gitignored, and anything set in the real environment overrides it.
 
@@ -291,6 +292,140 @@ The readiness probe uses `/health/ready`, which returns 503 if the database does
 
 Before you deploy, set the `image:` in `k8s/deployment.yaml` to an image you've pushed to a registry, and set `DB_HOST` in `k8s/configmap.yaml` to your Postgres host. The `db/init` scripts aren't in the image, so run them against the target database separately.
 
+## Deploying to AWS Lightsail
+
+The service runs on a single Lightsail instance in eu-west-2. Docker Compose runs three containers on it: Caddy, the API and Postgres. Terraform in `infra/lightsail/` creates the instance, and `scripts/deploy.sh` is used to put a new version on it.
+
+```
+internet :80/:443 -> caddy -> api (127.0.0.1:8082) -> postgres
+```
+
+### Why Lightsail
+
+I wanted somewhere cheap and simple to run this. Lightsail gives me one Ubuntu VM with a static IP and a firewall for a fixed monthly price, which is all this project needs. ECS or EKS with RDS would have meant load balancers, clusters and a managed database, all costing extra, for what is a playground app.
+
+It also means the server runs the same Docker Compose setup I use locally, and because it's all in Terraform plus `bootstrap.sh`, I can tear it down and rebuild it whenever I like.
+
+The `k8s/` manifests are still in the repo in case I move it to Kubernetes later.
+
+### Why Caddy
+
+Caddy is the reverse proxy in front of the API. The config in `infra/lightsail/Caddyfile` is just:
+
+```
+{$PUBLIC_HOSTNAME} {
+    reverse_proxy api:8082
+}
+```
+
+The main reason for using it is HTTPS. Give Caddy a hostname and it gets a Let's Encrypt certificate, renews it and redirects HTTP to HTTPS on its own. With Nginx I'd have to set up certbot and a renewal job myself.
+
+I don't own a domain for this, so the hostname is the static IP with dashes on the end of `.sslip.io`, e.g. `35-178-124-114.sslip.io`. [sslip.io](https://sslip.io) resolves that back to the IP, which is enough for Let's Encrypt to issue a certificate.
+
+`bootstrap.sh` works out `PUBLIC_HOSTNAME` from the static IP, so the Caddyfile doesn't need changing if the IP changes.
+
+A few other bits:
+
+- The API is only bound to `127.0.0.1:8082`, so everything goes through Caddy. The Lightsail firewall only opens 80, 443 and 22 (SSH from my IP only).
+- Certificates are stored in the `caddy-data` volume so a restart doesn't request new ones and run into Let's Encrypt's rate limits.
+
+### How a release works
+
+1. On every push to `main`, CI (`.github/workflows/ci.yml`) lints, tests and builds, then pushes the image to GHCR tagged `latest` and `sha-<commit>`.
+2. On the server, `compose.prod.yaml` uses `ghcr.io/chrisp1985/nestjs-playground:sha-${DEPLOY_COMMIT}`. `DEPLOY_COMMIT` is set in `/opt/nestjs-playground/.env.runtime`, so I always know exactly which commit is running rather than relying on `latest`.
+3. `deploy.sh` pulls the new image first, switches over, and rolls back if the new version doesn't come up healthy.
+
+Recent changes to the deployment:
+
+- The hostname used to be hard-coded in the root `Caddyfile`. It's now passed in as `PUBLIC_HOSTNAME`, set from the static IP.
+- The server pulls the image CI built for that commit instead of building it on the instance, so what runs is what passed CI.
+- `deploy.sh` now checks the Compose config and pulls the image before switching, then rolls back to the previous commit if the readiness check fails.
+
+### What you need
+
+- Terraform 1.5 or later
+- AWS credentials Terraform can use (`aws configure` or `AWS_PROFILE`) with access to Lightsail
+- The GHCR package `ghcr.io/chrisp1985/nestjs-playground` set to public, as the instance doesn't log in to GHCR
+- The Lightsail default SSH key for eu-west-2, from the Lightsail console under Account > SSH keys
+
+### Setting up the instance
+
+1. Push to `main` and wait for the CI workflow to pass, including the `publish-image` job. This is the version the instance will start with.
+
+2. Create `infra/lightsail/terraform.tfvars` (it's gitignored):
+
+   ```hcl
+   ssh_cidr      = "203.0.113.10/32"                          # your public IP
+   deploy_commit = "bfd6872bc47f036c805f7f04418559b9cc6c625f"  # full commit SHA
+   ```
+
+   `git rev-parse HEAD` gives you the SHA and `curl https://checkip.amazonaws.com` gives you your IP.
+
+3. Run Terraform:
+
+   ```bash
+   cd infra/lightsail
+   terraform init
+   terraform plan
+   terraform apply
+   terraform output public_ip
+   ```
+
+4. Give it a few minutes. On first boot `bootstrap.sh` installs Docker, downloads the repo at `deploy_commit` into `/opt/nestjs-playground`, generates a random DB password, writes it to `.env.runtime` along with `DEPLOY_COMMIT` and `PUBLIC_HOSTNAME`, then starts the containers. Postgres runs the `db/init/` scripts on its first start, so the players are seeded.
+
+5. Check it's up, using the IP with dashes instead of dots:
+
+   ```bash
+   curl https://35-178-124-114.sslip.io/health/ready
+   ```
+
+   Swagger is at `https://<hostname>/api`.
+
+The Terraform state is local (and gitignored), so run Terraform from the same machine each time.
+
+### Deploying a new version
+
+This only replaces the API container. Postgres and its data aren't touched.
+
+1. Push to `main` and wait for `publish-image` to pass.
+2. Get the full SHA with `git rev-parse origin/main`.
+3. SSH on and run the deploy script:
+
+   ```bash
+   ssh -i LightsailDefaultKey-eu-west-2.pem ubuntu@<public_ip>
+   sudo /opt/nestjs-playground/scripts/deploy.sh <commit-sha>
+   ```
+
+What the script does:
+
+1. Checks it's been given a full 40 character SHA and is running as root.
+2. Reads the current `DEPLOY_COMMIT` and `PUBLIC_HOSTNAME` from `.env.runtime`.
+3. Checks the Compose config and pulls the new image. If the image isn't there yet (e.g. CI is still running) it stops, and the current version carries on running.
+4. Updates `DEPLOY_COMMIT` in `.env.runtime` and recreates the `api` container.
+5. Hits `https://<PUBLIC_HOSTNAME>/health/ready` for up to about 30 seconds.
+6. If that fails, it puts the old `DEPLOY_COMMIT` back, restarts the old image and checks again. It exits with an error either way, and prints `CRITICAL: Rollback failed` if the old version doesn't come back.
+
+To roll back manually, run `deploy.sh` with the last good SHA.
+
+### Gotchas
+
+- `deploy.sh` only changes the image. `compose.prod.yaml`, the Caddyfile, `db/init/` and `deploy.sh` itself stay as they were in the commit the instance was first built from. If those change, copy them onto the server or rebuild the instance.
+- Don't change `deploy_commit` in Terraform for normal releases. Lightsail can't update user data in place, so Terraform will destroy and recreate the instance, which wipes the database. The static IP stays the same.
+- The Lightsail Caddyfile lets every method through, so `POST`, `PATCH` and `DELETE` work on the public instance. The old root `Caddyfile` blocked these with a 405.
+- The root `Caddyfile` and `docker-compose.prod.yml` are from my first manual setup, which built the image on the server. The Terraform setup uses the files in `infra/lightsail/` instead.
+
+Handy commands on the instance:
+
+```bash
+cd /opt/nestjs-playground
+sudo docker compose --env-file .env.runtime -f compose.prod.yaml ps
+sudo docker compose --env-file .env.runtime -f compose.prod.yaml logs -f api
+sudo grep DEPLOY_COMMIT .env.runtime        # which commit is live
+sudo cat /var/log/nestjs-bootstrap.log      # first boot output
+```
+
+`terraform destroy` in `infra/lightsail/` removes the lot.
+
 ## Tests
 
 ```bash
@@ -320,6 +455,9 @@ src/
   players/            /players CRUD: entity, DTOs (validation), service, controller
 test/                 End-to-end tests
 k8s/                  Kubernetes manifests (kustomize)
+infra/lightsail/      Terraform, bootstrap script, Compose file and Caddyfile for Lightsail
+scripts/deploy.sh     Deploys a CI-built image to Lightsail, with rollback
+.github/workflows/    CI: lint, test, build, publish image to GHCR
 Dockerfile            Production container image
 docker-compose.yml    Local Postgres
 .env.example          Template for local .env
