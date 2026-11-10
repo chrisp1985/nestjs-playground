@@ -13,6 +13,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { MetricsModule } from './metrics/metrics.module.js';
 import { ScoutingModule } from './scouting/scouting.module.js';
+import { ScoutingReport } from './scouting/entities/scouting-report.entity.js';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { ScoutingModule } from './scouting/scouting.module.js';
         database: db.name,
         username: db.user,
         password: db.password,
-        entities: [Player],
+        entities: [Player, ScoutingReport],
         // pg returns BIGINT as a string by default; ids fit safely in a JS number.
         parseInt8: true,
         synchronize: false,
