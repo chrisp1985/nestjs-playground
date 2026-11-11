@@ -1,5 +1,5 @@
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ScoutingReport } from './entities/scouting-report.entity.js';
@@ -38,4 +38,33 @@ export class ScoutingReportService {
         completedAt: new Date(),
     });
   }
+
+  async findById(reportId: string): Promise<ScoutingReport> {
+    const report = await this.reports.findOneBy({
+      reportId,
+    });
+
+    if (!report) {
+      throw new NotFoundException (
+        `Scouting report ${reportId} not found`,
+      );
+    }
+    return report;
+  }
+
+  async createQueued(
+    reportId: string,
+    playerNo: number,
+    requestedAt: string,
+  ): Promise<void> {
+    await this.reports.insert({
+      reportId,
+      playerNo,
+      status: 'queued',
+      result: null,
+      requestedAt: new Date(requestedAt),
+      completedAt: null,
+    });
+  }
+
 }

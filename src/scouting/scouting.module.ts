@@ -8,13 +8,17 @@ import { SqsConsumerService } from "../sqs/sqs-consumer.service.js";
 import { ScoutingReport } from "./entities/scouting-report.entity.js";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ScoutingReportService } from "./scouting-report.service.js";
+import { ScoutingReportsController } from "./scouting-reports.controller.js";
 @Module({
   imports: [
     HttpModule, 
     SqsModule,
     TypeOrmModule.forFeature([ScoutingReport])
   ],
-  controllers: [ScoutingController],
+  controllers: [
+    ScoutingController, 
+    ScoutingReportsController
+  ],
   providers: [
     ScoutingService, 
     ScoutingRequestsService,
