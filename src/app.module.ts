@@ -33,7 +33,6 @@ import { ScoutingReport } from './scouting/entities/scouting-report.entity.js';
         username: db.user,
         password: db.password,
         entities: [Player, ScoutingReport],
-        // pg returns BIGINT as a string by default; ids fit safely in a JS number.
         parseInt8: true,
         synchronize: false,
       }),

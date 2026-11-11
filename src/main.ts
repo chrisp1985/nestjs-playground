@@ -9,7 +9,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin: config.getOrThrow<string>('CORS_ORIGIN'),
-    methods: ['GET', 'DELETE'],
+    methods: ['GET', 'DELETE', 'POST'],
   });
 
   app.enableShutdownHooks();

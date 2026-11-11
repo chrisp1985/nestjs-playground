@@ -12,7 +12,6 @@ import {
   DeleteMessageCommand,
   Message,
 } from '@aws-sdk/client-sqs';
-import { ScoutingService } from '../scouting/scouting.service.js';
 import type { ScoutingRequestMessage } from './messages/scouting-request.message.js';
 import { ScoutingReportService } from '../scouting/scouting-report.service.js';
 
@@ -65,9 +64,17 @@ export class SqsConsumerService
         );
 
         if (!this.running) break;
-
         for (const message of response.Messages ?? []) {
-          await this.processMessage(message);
+          try {
+            await this.processMessage(message);
+          }
+          catch (error) {
+            const messageId = message.MessageId;
+            this.logger.error(
+              `SQS processing failed. MessageID: ${messageId}`,
+              error instanceof Error ? error.stack : String(error)
+            )
+          }
         }
       } catch (error) {
         if (!this.running) break;
