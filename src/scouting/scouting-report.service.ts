@@ -6,6 +6,7 @@ import { ScoutingReport } from './entities/scouting-report.entity.js';
 import { ScoutingService } from './scouting.service.js';
 import type { ScoutingRequestMessage } from '../sqs/messages/scouting-request.message.js';
 import { LlmService } from '../llm/llm.service.js';
+import { parseScoutingAnalysis, SCOUTING_RECOMMENDATIONS } from '../llm/dto/scouting-analysis.dto.js';
 
 @Injectable()
 export class ScoutingReportService {
@@ -31,7 +32,12 @@ export class ScoutingReportService {
       message.playerNo,
     );
 
-    const analysis = await this.llm.analyseScoutingReport(result);
+    const rawAnalysis = await this.llm.analyseScoutingReport(result);
+    const analysis = parseScoutingAnalysis(rawAnalysis);
+
+    if (!SCOUTING_RECOMMENDATIONS.some((allowed) => allowed === analysis.recommendation,)) {
+      throw new Error('Invalid Recommendation received.');
+    }
 
     await this.reports.save({
         reportId: message.reportId,

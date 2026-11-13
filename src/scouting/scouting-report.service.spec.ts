@@ -148,4 +148,71 @@ describe('Scouting Report', () => {
         expect(reports.save).not.toHaveBeenCalled();
     });
 
+    it('rejects an unsupported LLM recommendation without saving the report', async () => {
+        
+        const message: ScoutingRequestMessage = {
+            reportId: "f09389ec-018c-4835-996e-406fe671b45c",
+            playerNo: 123,
+            requestedAt: "2026-11-12T21:35:49.248Z",
+        };
+
+        const scoutingResult = {
+            playerId: 123,
+            potential: 85,
+            report: 'Strong technical ability'
+        }
+
+        reports.findOneBy.mockResolvedValue({
+            status: 'queued',
+            reportId: "f09389ec-018c-4835-996e-406fe671b45c",
+            playerNo: 123,
+        });
+
+        scouting.findOne.mockResolvedValue(scoutingResult);
+
+        llm.analyseScoutingReport.mockResolvedValue({
+            "summary": "Promising player",
+            "recommendation": "sign_immediately",
+            "reasons": ["High potential"]
+        });
+
+        await expect(
+            service.process(message),
+        ).rejects.toThrow('Invalid Recommendation received.');
+        expect(reports.save).not.toHaveBeenCalled();
+    });   
+    
+    it('rejects LLM analysis with a non-string reason without saving the report', async () => {
+        
+        const message: ScoutingRequestMessage = {
+            reportId: "f09389ec-018c-4835-996e-406fe671b45c",
+            playerNo: 123,
+            requestedAt: "2026-11-12T21:35:49.248Z",
+        };
+
+        const scoutingResult = {
+            playerId: 123,
+            potential: 85,
+            report: 'Strong technical ability'
+        }
+
+        reports.findOneBy.mockResolvedValue({
+            status: 'queued',
+            reportId: "f09389ec-018c-4835-996e-406fe671b45c",
+            playerNo: 123,
+        });
+
+        scouting.findOne.mockResolvedValue(scoutingResult);
+
+        llm.analyseScoutingReport.mockResolvedValue({
+            summary: 'Promising player',
+            recommendation: 'promote',
+            reasons: ['High potential', 85],    
+        });
+
+        await expect(
+            service.process(message),
+        ).rejects.toThrow('Invalid analysis reasons.');
+        expect(reports.save).not.toHaveBeenCalled();
+    });       
 });
