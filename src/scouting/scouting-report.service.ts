@@ -35,10 +35,6 @@ export class ScoutingReportService {
     const rawAnalysis = await this.llm.analyseScoutingReport(result);
     const analysis = parseScoutingAnalysis(rawAnalysis);
 
-    if (!SCOUTING_RECOMMENDATIONS.some((allowed) => allowed === analysis.recommendation,)) {
-      throw new Error('Invalid Recommendation received.');
-    }
-
     await this.reports.save({
         reportId: message.reportId,
         playerNo: message.playerNo,
