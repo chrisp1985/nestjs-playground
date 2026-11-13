@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { ScoutingReport } from './entities/scouting-report.entity.js';
 import { ScoutingService } from './scouting.service.js';
 import type { ScoutingRequestMessage } from '../sqs/messages/scouting-request.message.js';
+import { LlmService } from '../llm/llm.service.js';
 
 @Injectable()
 export class ScoutingReportService {
@@ -12,6 +13,7 @@ export class ScoutingReportService {
     @InjectRepository(ScoutingReport)
     private readonly reports: Repository<ScoutingReport>,
     private readonly scouting: ScoutingService,
+    private readonly llm: LlmService,
   ) {}
 
   async process(
@@ -29,11 +31,16 @@ export class ScoutingReportService {
       message.playerNo,
     );
 
+    const analysis = await this.llm.analyseScoutingReport(result);
+
     await this.reports.save({
         reportId: message.reportId,
         playerNo: message.playerNo,
         status: 'completed',
-        result: result as unknown as Record<string, unknown>,
+        result: {
+          scouting: { ...result },
+          analysis: { ...analysis },
+        },
         requestedAt: new Date(message.requestedAt),
         completedAt: new Date(),
     });
