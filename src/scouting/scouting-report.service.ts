@@ -6,7 +6,7 @@ import { ScoutingReport } from './entities/scouting-report.entity.js';
 import { ScoutingService } from './scouting.service.js';
 import type { ScoutingRequestMessage } from '../sqs/messages/scouting-request.message.js';
 import { LlmService } from '../llm/llm.service.js';
-import { parseScoutingAnalysis, SCOUTING_RECOMMENDATIONS } from '../llm/dto/scouting-analysis.dto.js';
+import { parseScoutingAnalysis } from '../llm/dto/scouting-analysis.dto.js';
 
 @Injectable()
 export class ScoutingReportService {
