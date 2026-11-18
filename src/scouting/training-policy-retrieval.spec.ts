@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { rankPolicies, type ScoutingPolicy } from './policy-retrieval.js';
+import { rankPolicies, type ScoutingPolicy } from './training-policy-retrieval.js';
 
 const policies: ScoutingPolicy[] = [
   {
