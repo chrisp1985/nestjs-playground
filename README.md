@@ -2,6 +2,8 @@
 
 This is a small [NestJS](https://nestjs.com) backend web service for me to experiment with Nest. It exposes health-style status endpoints and a player CRUD API backed by PostgreSQL, with filtering, sorting, pagination, request validation and Swagger docs. The database is seeded with the same base set of World Cup player data used by the `springbootplay` project.
 
+It can also generate scouting reports. You ask for a report on a player and the request goes onto an SQS queue. A consumer picks it up, gets the player's scouting data, and has Claude analyse it along with the player's Premier League stats. The finished report is saved to Postgres. See [Scouting reports](#scouting-reports).
+
 ## Tech stack
 
 - NestJS 12 (TypeScript, ES modules) on the Express platform
@@ -9,12 +11,17 @@ This is a small [NestJS](https://nestjs.com) backend web service for me to exper
 - TypeORM for database access
 - class-validator / class-transformer for request validation
 - `@nestjs/swagger` for OpenAPI docs and Swagger UI
+- `@aws-sdk/client-sqs` for the scouting request queue (queue created with Terraform in `infra/sqs/`)
+- `@anthropic-ai/sdk` for LLM analysis of scouting reports, using structured (JSON schema) output
+- `@nestjs/axios` for calls to the upstream scouting service, with retries and a deadline
+- `prom-client` for Prometheus metrics at `/metrics`
 - Vitest + Supertest for tests, oxlint for linting, Prettier for formatting
 
 ## Prerequisites
 
 - Node.js 22 (22.22.3 or later recommended; older 22.x versions work but print engine warnings during install)
 - Docker Desktop (or another Docker engine with Compose v2)
+- For scouting reports: AWS credentials with access to the scouting SQS queue (create it with `terraform apply` in `infra/sqs/`, which also creates a dead-letter queue), and an Anthropic API key if you want real LLM output rather than the fake
 
 ## Getting started
 
@@ -22,7 +29,8 @@ This is a small [NestJS](https://nestjs.com) backend web service for me to exper
 # 1. Install dependencies
 npm install
 
-# 2. Create your local config (gitignored)
+# 2. Create your local config (gitignored), then fill in SCOUTING_QUEUE_URL
+#    and either set LLM_PROVIDER=fake or add your Anthropic key and model
 cp .env.example .env
 
 # 3. Start the database (first run creates the schema and seeds 50 players)
@@ -41,7 +49,7 @@ curl http://localhost:8082/status
 
 Then open **http://localhost:8082/api** to browse and try out the API in Swagger UI.
 
-The service connects to the database on startup, so start Postgres before the app.
+The service connects to the database on startup, so start Postgres before the app. It also starts polling the scouting SQS queue as soon as it boots. To produce scouting reports locally, run the mock upstream service too (`node scripts/mock-scouting.cjs`).
 
 ## API
 
@@ -56,15 +64,21 @@ The document is built from decorators on the controllers and DTOs (`@ApiProperty
 
 ### Endpoints
 
-| Method | Path            | Description                             | Response              |
-| ------ | --------------- | --------------------------------------- | --------------------- |
-| GET    | `/status`       | Liveness check                          | `{"status":"up"}`     |
-| GET    | `/health/ready` | Readiness: pings the database           | JSON, 200 or 503      |
-| GET    | `/players`      | Players, filtered, sorted and paginated | Paginated JSON        |
-| GET    | `/players/:id`  | One player by player number             | JSON, 200 or 404      |
-| POST   | `/players`      | Create a player                         | JSON, 201 or 400      |
-| PATCH  | `/players/:id`  | Update some of a player's fields        | JSON, 200, 400 or 404 |
-| DELETE | `/players/:id`  | Delete a player                         | Empty, 204 or 404     |
+| Method | Path                          | Description                                 | Response                        |
+| ------ | ----------------------------- | ------------------------------------------- | ------------------------------- |
+| GET    | `/status`                     | Liveness check                              | `{"status":"up"}`               |
+| GET    | `/health/ready`               | Readiness: pings the database               | JSON, 200 or 503                |
+| GET    | `/players`                    | Players, filtered, sorted and paginated     | Paginated JSON                  |
+| GET    | `/players/:id`                | One player by player number                 | JSON, 200 or 404                |
+| POST   | `/players`                    | Create a player                             | JSON, 201 or 400                |
+| PATCH  | `/players/:id`                | Update some of a player's fields            | JSON, 200, 400 or 404           |
+| DELETE | `/players/:id`                | Delete a player                             | Empty, 204 or 404               |
+| GET    | `/metrics`                    | Prometheus metrics                          | Plain text                      |
+| GET    | `/scouting/:id`               | Raw scouting data from the upstream service | JSON, 200, 404, 502, 503 or 504 |
+| POST   | `/scouting/:playerNo/reports` | Queue an LLM scouting report                | JSON, 202                       |
+| GET    | `/scouting-reports/:reportId` | Fetch a queued or completed report          | JSON, 200, 400 or 404           |
+
+The scouting endpoints are covered in [Scouting reports](#scouting-reports).
 
 ### `GET /players`
 
@@ -180,7 +194,7 @@ Request bodies for `POST` and `PATCH` are checked against these rules. `POST` ne
 
 ### Error responses
 
-Errors use Nest's standard shape. Validation failures list every problem found:
+Errors go through the exception filter in `src/common/filters/http-exception.filter.ts`, which adds the path and a request ID. Every response has the ID in an `X-Request-ID` header and it's in the logs too, so a failed call can be matched to its log lines. Unexpected errors are logged with the stack trace, but the client just gets `500 Internal server error`. Validation failures list every problem found:
 
 ```bash
 curl -X POST http://localhost:8082/players -H "Content-Type: application/json" \
@@ -194,15 +208,178 @@ curl -X POST http://localhost:8082/players -H "Content-Type: application/json" \
     "position must be one of the following values: GK, DF, MF, FW"
   ],
   "error": "Bad Request",
-  "statusCode": 400
+  "statusCode": 400,
+  "path": "/players",
+  "requestId": "3f2c9a8e-5b1d-4c47-9d0e-2a6f1b7c8e90"
 }
 ```
 
 A missing player:
 
 ```json
-{ "message": "Player 999 not found", "error": "Not Found", "statusCode": 404 }
+{
+  "statusCode": 404,
+  "error": "Not Found",
+  "message": "Player 999 not found",
+  "path": "/players/999",
+  "requestId": "8a1e4d2b-0c3f-4e6a-b7d9-5f2e1c0a9b34"
+}
 ```
+
+## Scouting reports
+
+Reports are built in the background. The request returns a report ID straight away. The slow part (the upstream call and two LLM calls) is done by an SQS consumer that runs inside the same app.
+
+```
+POST /scouting/:playerNo/reports
+  -> insert scouting_reports row (status "queued")
+  -> publish { reportId, playerNo, requestedAt } to SQS
+  -> 202 { reportId, status: "queued" }
+
+SqsConsumerService (long-polls the queue)
+  -> ScoutingReportService.process(message)
+       1. skip if the report is already "completed" (safe to redeliver)
+       2. GET http://localhost:4000/scouting/:playerNo      upstream scouting data
+       3. LLM: analyseScoutingReport(scouting data)          promote / retain / release
+       4. LLM: evaluateSeniorPlayer(Premier League evidence) per-90 peer comparison, or null
+       5. save the row as "completed" with the results
+  -> delete the message from SQS
+
+GET /scouting-reports/:reportId
+  -> the stored row
+```
+
+### Requesting a report
+
+```bash
+curl -X POST http://localhost:8082/scouting/1/reports
+```
+
+```json
+{ "reportId": "0b6d3c1e-8f2a-4a7b-9c5d-1e2f3a4b5c6d", "status": "queued" }
+```
+
+The service doesn't check that the player exists before queuing.
+
+### Fetching a report
+
+```bash
+curl http://localhost:8082/scouting-reports/0b6d3c1e-8f2a-4a7b-9c5d-1e2f3a4b5c6d
+```
+
+While the consumer is still working on it, `status` is `queued` and `result` is `null`. Once it's done:
+
+```json
+{
+  "reportId": "0b6d3c1e-8f2a-4a7b-9c5d-1e2f3a4b5c6d",
+  "playerNo": 1,
+  "status": "completed",
+  "result": {
+    "scouting": {
+      "playerId": 1,
+      "potential": 85,
+      "report": "Clinical finisher, strong hold-up play."
+    },
+    "analysis": {
+      "summary": "High potential and a strong finisher.",
+      "recommendation": "retain",
+      "reasons": ["Potential rated 85.", "Report highlights finishing."]
+    },
+    "seniorEvaluation": {
+      "summary": "Harry Kane scored more goals per 90 than the comparison group in 2025/26.",
+      "comparisons": [
+        {
+          "metric": "goalsPer90",
+          "observation": "0.82 goals per 90 over 2,610 minutes."
+        }
+      ],
+      "limitations": ["Single season, Premier League only."]
+    }
+  },
+  "requestedAt": "2026-11-18T10:00:00.000Z",
+  "completedAt": "2026-11-18T10:00:04.512Z"
+}
+```
+
+`reportId` must be a UUID (`400` otherwise), and an unknown ID returns `404`. Reports are stored in the `scouting_reports` table (`db/init/03-scouting-reports.sql`), with the whole result in a `jsonb` column.
+
+If processing fails (upstream error, LLM error, or an LLM answer that fails validation), the error is logged with the SQS message ID, the report stays `queued`, and the message isn't deleted. SQS makes it visible again after the 60 second visibility timeout and retries it, and after 3 failed receives moves it to the dead-letter queue.
+
+### Upstream scouting data: `GET /scouting/:id`
+
+`ScoutingService` calls an upstream scouting service at `http://localhost:4000/scouting/:playerNo` (currently hard-coded) and expects `{ playerId, potential, report }`. The same call is exposed directly as `GET /scouting/:id`.
+
+The call has an overall deadline of 3 seconds and a 2 second per-attempt timeout. It makes up to 3 attempts, backing off 100 ms then 200 ms, and only retries on `429`, `500`–`504` and connection errors (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `ECONNABORTED`). Failures are mapped to:
+
+| Upstream result               | Response                            |
+| ----------------------------- | ----------------------------------- |
+| `404`                         | `404 Scouting report not found`     |
+| `429` (after retries)         | `503 Scouting service rate limited` |
+| Timeout, or deadline exceeded | `504`                               |
+| Anything else                 | `502 Scouting service unavailable`  |
+
+For local work there's a mock in `scripts/mock-scouting.cjs` that listens on port 4000. Player `999999` always gets a `503`, which I use to test the retries.
+
+```bash
+node scripts/mock-scouting.cjs
+```
+
+Its response body (`playerNo`, `rating`, `recommendation`) doesn't yet match the `ScoutingResponse` shape the service expects.
+
+### LLM analysis
+
+Both LLM calls go through the abstract `LlmService` (`src/llm/llm.service.ts`). `LlmModule` picks the implementation from `LLM_PROVIDER`:
+
+| `LLM_PROVIDER`   | Implementation        | Notes                                                                                     |
+| ---------------- | --------------------- | ----------------------------------------------------------------------------------------- |
+| `fake` (default) | `FakeLlmService`      | Canned answers (`retain`, placeholder evaluation). No network calls and no API key needed |
+| `anthropic`      | `AnthropicLlmService` | Calls Claude with `ANTHROPIC_MODEL`, a 20 second timeout and no SDK retries               |
+
+Any other value stops the app at startup.
+
+The Anthropic version passes a JSON schema in `output_config.format`, so Claude has to reply in a fixed shape. I still don't trust the reply. The call fails if `stop_reason` isn't `end_turn` or there's no text, and the JSON goes through a parser before anything is saved.
+
+#### Scouting analysis
+
+`analyseScoutingReport`, max 512 tokens. The upstream scouting data is sent as JSON, and the system prompt tells the model to base its recommendation only on that data. It returns:
+
+| Field            | Rule                                  |
+| ---------------- | ------------------------------------- |
+| `summary`        | String                                |
+| `recommendation` | One of `promote`, `retain`, `release` |
+| `reasons`        | Array of strings                      |
+
+`parseScoutingAnalysis` (`src/llm/dto/scouting-analysis.dto.ts`) rejects anything else, so an unsupported recommendation fails the report instead of being stored.
+
+#### Senior evaluation
+
+`evaluateSeniorPlayer`, max 1024 tokens. `SeniorScoutingEvaluationService` gets the Premier League 2025/26 totals (season ID 269) for the player and everyone else that season. It works out goals and shots per 90 in `senior-scouting-metrics.ts` (`null` if a player had no minutes) and sends it all to the model, with the player marked `isSubject`.
+
+The prompt tells the model to only compare the player with the others it's been given, and to use minutes to explain sample size. It also has to state the competition, season and limits, and not guess at league ranking, form or club fit. It returns:
+
+| Field         | Rule                                                                             |
+| ------------- | -------------------------------------------------------------------------------- |
+| `summary`     | Non-blank string                                                                 |
+| `comparisons` | At least one `{ metric, observation }`, `metric` is `goalsPer90` or `shotsPer90` |
+| `limitations` | At least one non-blank string                                                    |
+
+This is checked by `parseSeniorScoutingEvaluation`. If the player isn't mapped to a Premier League player, or played no minutes that season, the model isn't called and `seniorEvaluation` is saved as `null`.
+
+### Premier League evidence data
+
+The senior evaluation reads two tables that `db/init/` doesn't create, so for now I load them by hand:
+
+| Table                           | Columns used                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| `senior_scouting_season_totals` | `source_season_id`, `source_player_id`, `player_name`, `minutes`, `goals`, `shots` |
+| `senior_scouting_player_map`    | `playerno` (our player number), `source_player_id`                                 |
+
+The source data (11footy, 2026-11-10 release) is in `resources/premier-league/` (`player_season_totals.csv`, `seasons.csv` and so on), with player names in `resources/players.csv`. Without these tables, report processing fails at the senior evaluation step.
+
+### Not finished yet
+
+- `rankPolicies` in `src/scouting/training-policy-retrieval.ts` ranks scouting policies by how many words they share with a query, e.g. "promotion requires senior match evidence". It has tests but isn't used in the prompts yet.
+- `src/llm/evals/scouting-recommendation.spec.ts` is the start of some evals for the analysis step. Each case has an expected recommendation, e.g. a player with no senior match evidence should get `retain`, not `promote`. For now it checks hard-coded answers and doesn't call the model.
 
 ## Running the service
 
@@ -219,15 +396,22 @@ Stop the service with `Ctrl+C`.
 
 All settings are environment variables, loaded with [`@nestjs/config`](https://docs.nestjs.com/techniques/configuration) and validated at startup (`src/config/env.validation.ts`). If a required variable is missing or invalid, the app refuses to start and names the variable.
 
-| Variable      | Required | Default                 | Purpose                                       |
-| ------------- | -------- | ----------------------- | --------------------------------------------- |
-| `PORT`        | no       | `8082`                  | HTTP port                                     |
-| `DB_HOST`     | yes      |                         | Postgres host                                 |
-| `DB_PORT`     | no       | `5432`                  | Postgres port                                 |
-| `DB_NAME`     | yes      |                         | Database name                                 |
-| `DB_USER`     | yes      |                         | Database user                                 |
-| `DB_PASSWORD` | yes      |                         | Database password                             |
-| `CORS_ORIGIN` | no       | `http://localhost:5173` | Origin allowed to call the API from a browser |
+| Variable             | Required                      | Default                 | Purpose                                                                           |
+| -------------------- | ----------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `PORT`               | no                            | `8082`                  | HTTP port                                                                         |
+| `DB_HOST`            | yes                           |                         | Postgres host                                                                     |
+| `DB_PORT`            | no                            | `5432`                  | Postgres port                                                                     |
+| `DB_NAME`            | yes                           |                         | Database name                                                                     |
+| `DB_USER`            | yes                           |                         | Database user                                                                     |
+| `DB_PASSWORD`        | yes                           |                         | Database password                                                                 |
+| `CORS_ORIGIN`        | no                            | `http://localhost:5173` | Origin allowed to call the API from a browser                                     |
+| `AWS_REGION`         | yes                           |                         | Region of the scouting SQS queue (`eu-west-2`)                                    |
+| `SCOUTING_QUEUE_URL` | yes                           |                         | URL of the scouting queue (`terraform output scouting_queue_url` in `infra/sqs/`) |
+| `LLM_PROVIDER`       | no                            | `fake`                  | `fake` or `anthropic`                                                             |
+| `ANTHROPIC_API_KEY`  | when `LLM_PROVIDER=anthropic` |                         | Anthropic API key                                                                 |
+| `ANTHROPIC_MODEL`    | when `LLM_PROVIDER=anthropic` |                         | Claude model ID, e.g. `claude-sonnet-5-5`                                         |
+
+Only the first seven are in the Joi schema so far. The SQS and LLM ones are read with `getOrThrow`, so the app still won't start without them, but the error is less helpful. AWS credentials are picked up the usual way (environment variables, `~/.aws`, or an instance role).
 
 **Local development:** copy `.env.example` to `.env`. Its values match `docker-compose.yml`. `.env` is gitignored, and anything set in the real environment overrides it.
 
@@ -243,6 +427,9 @@ On first start, Postgres runs the scripts in `db/init/` in order:
 
 - `01-schema.sql` creates the `player` table (a Postgres port of `springbootplay`'s `V1__initial_schema.sql`)
 - `02-seed-players.sql` inserts the 50 base players (copied from `springbootplay`'s `V2__seed_world_cup_players.sql`)
+- `03-scouting-reports.sql` creates the `scouting_reports` table (column names are quoted camelCase to match the entity)
+
+The Premier League evidence tables used by the senior evaluation aren't created here. See [Premier League evidence data](#premier-league-evidence-data).
 
 These scripts only run when the data volume is empty. To re-run them after editing, or to get back to a clean dataset:
 
@@ -438,6 +625,15 @@ npm run format       # prettier
 
 The unit tests mock the database. They cover the controllers, the players service (filter, sort and pagination logic, 404 handling), the DTO validation rules, and the generated Swagger document (`src/swagger.spec.ts`, which fails if an endpoint or field is missing from the docs).
 
+The scouting tests mock SQS, HTTP and the Anthropic client, so they don't need AWS or an API key. They cover:
+
+- `scouting.service.spec.ts`: a successful call, retry after a `503`, timeouts, the overall deadline and `404` mapping for the upstream call
+- `sqs-publisher.service.spec.ts`, `sqs-consumer.service.spec.ts`: publishing (including SQS errors and a missing message ID), deleting processed messages and leaving failed ones on the queue
+- `scouting-report.service.spec.ts`: the processing pipeline, skipping completed reports, and refusing to save an unsupported LLM recommendation
+- `llm.anthropic.service.spec.ts`: parsing a completed Claude response, and rejecting one cut off by the token limit
+- `senior-scouting-*.spec.ts`, `senior-scouting-evaluation.dto.spec.ts`: per-90 maths, evidence lookup, and evaluation parsing
+- `training-policy-retrieval.spec.ts`, `llm/evals/scouting-recommendation.spec.ts`: policy ranking and the early recommendation eval cases
+
 The e2e tests boot the whole application against the seeded Postgres, so run `docker compose up -d` first. They cover filtering, validation errors, the full create → update → delete cycle, and the `/api` and `/api-json` docs. The write tests delete the player they create, so the seed data stays intact.
 
 ## Project structure
@@ -453,7 +649,15 @@ src/
   app.service.ts
   health/             GET /health/ready: Terminus DB readiness check
   players/            /players CRUD: entity, DTOs (validation), service, controller
+  common/             Global exception filter, request ID middleware
+  metrics/            GET /metrics and the HTTP timing interceptor (prom-client)
+  scouting/           Scouting endpoints, upstream client, report pipeline, senior evidence
+  llm/                LlmService abstraction, Anthropic and fake implementations, output parsers, evals
+  sqs/                SQS publisher and long-polling consumer for scouting requests
 test/                 End-to-end tests
+scripts/mock-scouting.cjs  Mock upstream scouting service on port 4000
+resources/            Premier League source data (CSV) for the senior evaluation
+infra/sqs/            Terraform for the scouting queue and its dead-letter queue
 k8s/                  Kubernetes manifests (kustomize)
 infra/lightsail/      Terraform, bootstrap script, Compose file and Caddyfile for Lightsail
 scripts/deploy.sh     Deploys a CI-built image to Lightsail, with rollback
@@ -471,4 +675,6 @@ docker-compose.yml    Local Postgres
 - **App fails to start with `ECONNREFUSED`**: the database isn't running. Run `docker compose up -d` and wait until `docker compose ps` shows it as healthy.
 - **`/players` returns no players or old data**: the init scripts only run on an empty volume. Reset with `docker compose down -v && docker compose up -d`.
 - **e2e tests fail on `total: 50` or the first player**: players you added, edited or deleted by hand (for example through Swagger's "Try it out") are still in the database. Reset it as above.
+- **App fails to start with `Configuration key "SCOUTING_QUEUE_URL" does not exist`** (or `AWS_REGION`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`): add it to `.env`. For local work without an Anthropic key, set `LLM_PROVIDER=fake`.
+- **Scouting report stays `queued`**: check the app logs for `SQS processing failed`. Common causes: the mock scouting service isn't running on port 4000, the Premier League evidence tables are missing, or the LLM answer failed validation. After 3 attempts the message moves to `nestjs-playground-scouting-dlq`.
 - **`400` with `property X should not exist`**: the request included a field or query parameter the API doesn't accept. Check the spelling against the tables above or Swagger UI.

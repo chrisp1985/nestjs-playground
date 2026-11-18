@@ -5,6 +5,7 @@ import { getRepositoryToken } from "@nestjs/typeorm";
 import { ScoutingService } from "./scouting.service.js";
 import { ScoutingReport } from "./entities/scouting-report.entity.js";
 import { LlmService } from "../llm/llm.service.js";
+import { SeniorScoutingEvaluationService } from "./senior-scouting-evaluation.service.js";
 
 
 describe('Scouting Report', () => {
@@ -28,6 +29,8 @@ describe('Scouting Report', () => {
         analyseScoutingReport: vi.fn(),
     };   
 
+    const seniorScouting = { evaluate: vi.fn() };
+
     let service: ScoutingReportService;
 
     beforeEach(async () => {
@@ -46,6 +49,10 @@ describe('Scouting Report', () => {
             {
                 provide: LlmService,
                 useValue: llm,
+            },
+            { 
+                provide: SeniorScoutingEvaluationService, 
+                useValue: seniorScouting 
             },
         ],
     }).compile();
@@ -109,11 +116,13 @@ describe('Scouting Report', () => {
         });
 
         scouting.findOne.mockResolvedValue(scoutingResult);
+        seniorScouting.evaluate.mockResolvedValue(null);
 
         llm.analyseScoutingReport.mockResolvedValue(analysis);
 
         await service.process(message);
         expect(reports.save).toHaveBeenCalledTimes(1);
+        expect(seniorScouting.evaluate).toHaveBeenCalledWith(message.playerNo)
         expect(reports.save).toHaveBeenCalledWith(
         expect.objectContaining({
             reportId: message.reportId,
@@ -124,6 +133,7 @@ describe('Scouting Report', () => {
             result: {
                 scouting: { ...scoutingResult },
                 analysis: { ...analysis },
+                seniorEvaluation: null,
             },
         }),
         );
@@ -146,6 +156,7 @@ describe('Scouting Report', () => {
         expect(scouting.findOne).not.toHaveBeenCalled();
         expect(llm.analyseScoutingReport).not.toHaveBeenCalled();
         expect(reports.save).not.toHaveBeenCalled();
+        expect(seniorScouting.evaluate).not.toHaveBeenCalled()
     });
 
     it('rejects an unsupported LLM recommendation without saving the report', async () => {

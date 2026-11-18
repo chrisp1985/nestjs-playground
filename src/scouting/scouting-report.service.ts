@@ -7,6 +7,7 @@ import { ScoutingService } from './scouting.service.js';
 import type { ScoutingRequestMessage } from '../sqs/messages/scouting-request.message.js';
 import { LlmService } from '../llm/llm.service.js';
 import { parseScoutingAnalysis } from '../llm/dto/scouting-analysis.dto.js';
+import { SeniorScoutingEvaluationService } from './senior-scouting-evaluation.service.js';
 
 @Injectable()
 export class ScoutingReportService {
@@ -15,6 +16,7 @@ export class ScoutingReportService {
     private readonly reports: Repository<ScoutingReport>,
     private readonly scouting: ScoutingService,
     private readonly llm: LlmService,
+    private readonly seniorScouting: SeniorScoutingEvaluationService,
   ) {}
 
   async process(
@@ -35,6 +37,8 @@ export class ScoutingReportService {
     const rawAnalysis = await this.llm.analyseScoutingReport(result);
     const analysis = parseScoutingAnalysis(rawAnalysis);
 
+    const seniorEvaluation = await this.seniorScouting.evaluate(message.playerNo);
+
     await this.reports.save({
         reportId: message.reportId,
         playerNo: message.playerNo,
@@ -42,6 +46,7 @@ export class ScoutingReportService {
         result: {
           scouting: { ...result },
           analysis: { ...analysis },
+          seniorEvaluation,
         },
         requestedAt: new Date(message.requestedAt),
         completedAt: new Date(),
