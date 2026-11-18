@@ -10,6 +10,8 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { ScoutingReportService } from "./scouting-report.service.js";
 import { ScoutingReportsController } from "./scouting-reports.controller.js";
 import { LlmModule } from '../llm/llm.module.js';
+import { SeniorScoutingEvidenceService } from "./senior-scouting-evidence.service.js";
+import { SeniorScoutingEvaluationService } from "./senior-scouting-evaluation.service.js";
 
 @Module({
   imports: [
@@ -26,7 +28,9 @@ import { LlmModule } from '../llm/llm.module.js';
     ScoutingService, 
     ScoutingRequestsService,
     ScoutingReportService,
-    SqsConsumerService
+    SqsConsumerService,
+    SeniorScoutingEvidenceService,
+    SeniorScoutingEvaluationService
   ],
 })
 export class ScoutingModule {}
