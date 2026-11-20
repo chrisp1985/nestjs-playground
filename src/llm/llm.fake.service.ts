@@ -3,6 +3,7 @@ import { LlmService } from "./llm.service.js";
 import { ScoutingResponse } from "../scouting/dto/scouting-response.dto.js";
 import { ScoutingAnalysis } from "./dto/scouting-analysis.dto.js";
 import { SeniorScoutingEvaluationInput, SeniorScoutingEvaluation } from "./dto/senior-scouting-evaluation.dto.js";
+import { ScoutingAnalysisInput } from "./dto/scouting-analysis-input.dto.js";
 
 @Injectable()
 export class FakeLlmService extends LlmService {
@@ -17,9 +18,9 @@ export class FakeLlmService extends LlmService {
         limitations: ['No model was called.'],
     };
     }
-    async analyseScoutingReport(scouting: ScoutingResponse): Promise<ScoutingAnalysis> {
+    async analyseScoutingReport(input: ScoutingAnalysisInput): Promise<ScoutingAnalysis> {
         return {
-            summary: `Player ${scouting.playerId} has been assessed.`,
+            summary: `Player ${input.scouting.playerId} has been assessed.`,
             recommendation: 'retain',
             reasons: [
                 'Scouting assessment completed',

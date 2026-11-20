@@ -5,6 +5,7 @@ import { LlmService } from './llm.service.js';
 import { SENIOR_SCOUTING_METRICS } from './dto/senior-scouting-evaluation.dto.js';
 import { parseSeniorScoutingEvaluation } from './dto/senior-scouting-evaluation.dto.js';
 import { SeniorScoutingEvaluation, SeniorScoutingEvaluationInput } from './dto/senior-scouting-evaluation.dto.js';
+import { ScoutingAnalysisInput } from './dto/scouting-analysis-input.dto.js';
 
 export class AnthropicLlmService extends LlmService {
   constructor(
@@ -66,12 +67,12 @@ export class AnthropicLlmService extends LlmService {
     return parseSeniorScoutingEvaluation(decoded);
   }  
 
-  async analyseScoutingReport(scouting: ScoutingResponse): Promise<unknown> {
+  async analyseScoutingReport(input: ScoutingAnalysisInput): Promise<unknown> {
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: 512,
       system: 'Analyse the supplied scouting data. Base the recommendation and reasons only on that data.',
-      messages: [{ role: 'user', content: JSON.stringify(scouting) }],
+      messages: [{ role: 'user', content: JSON.stringify(input) }],
       output_config: {
         format: {
           type: 'json_schema',

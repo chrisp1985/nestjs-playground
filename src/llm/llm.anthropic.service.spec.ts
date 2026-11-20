@@ -1,13 +1,22 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { AnthropicLlmService } from './llm.anthropic.service.js';
+import type { ScoutingAnalysisInput } from './dto/scouting-analysis-input.dto.js';
 
 describe('AnthropicLlmService', () => {
   it('parses a completed Claude response into a scouting analysis object', async () => {
-    const scouting = {
-      playerId: 1,
-      potential: 85,
-      report: 'Strong technical ability',
+    const expectedInput: ScoutingAnalysisInput = {
+        scouting: {
+          playerId: 1,
+          potential: 85,
+          report: 'Strong technical ability',
+        },
+        policies: [
+            {
+                id: 'promotion',
+                text: 'Promotion requires evidence of senior match performance.',
+            },
+        ],
     };
 
     const expectedAnalysis = {
@@ -29,9 +38,13 @@ describe('AnthropicLlmService', () => {
       'test-model',
     );
 
-    await expect(service.analyseScoutingReport(scouting)).resolves.toEqual(
+    await expect(service.analyseScoutingReport(expectedInput)).resolves.toEqual(
       expectedAnalysis,
     );
+
+    const request = create.mock.calls[0][0];
+    const payload = JSON.parse(request.messages[0].content);
+    expect(payload).toEqual(expectedInput);
   });
 
   it('rejects a Claude response stopped by the token limit', async () => {
@@ -60,7 +73,7 @@ describe('AnthropicLlmService', () => {
       'test-model',
     );
 
-    await expect(service.analyseScoutingReport(scouting)).rejects.toThrow(
+    await expect(service.analyseScoutingReport({ scouting, policies: [] })).rejects.toThrow(
     'Claude did not return a complete scouting analysis.',
     );
   });  

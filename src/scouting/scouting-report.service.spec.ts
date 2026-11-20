@@ -6,6 +6,7 @@ import { ScoutingService } from "./scouting.service.js";
 import { ScoutingReport } from "./entities/scouting-report.entity.js";
 import { LlmService } from "../llm/llm.service.js";
 import { SeniorScoutingEvaluationService } from "./senior-scouting-evaluation.service.js";
+import { ScoutingAnalysisInput } from "../llm/dto/scouting-analysis-input.dto.js";
 
 
 describe('Scouting Report', () => {
@@ -88,11 +89,23 @@ describe('Scouting Report', () => {
 
         expect(scouting.findOne).toHaveBeenCalledWith(123);
 
-        expect(llm.analyseScoutingReport).toHaveBeenCalledWith({
-            playerId: 123,
-            potential: 85,
-            report: 'Strong technical ability',
-        });
+        const expectedInput: ScoutingAnalysisInput = {
+            scouting: {
+                playerId: 123,
+                potential: 85,
+                report: 'Strong technical ability',
+            },
+            policies: [
+                {
+                    id: 'promotion',
+                    text: 'Promotion requires evidence of senior match performance.',
+                },
+            ],
+        };
+
+        expect(llm.analyseScoutingReport).toHaveBeenCalledWith(expectedInput);
+
+        expect(llm.analyseScoutingReport).toHaveBeenCalledWith(expectedInput);
     });
 
     it('completes the queued report when LLM analysis succeeds', async () => {
@@ -124,19 +137,30 @@ describe('Scouting Report', () => {
         expect(reports.save).toHaveBeenCalledTimes(1);
         expect(seniorScouting.evaluate).toHaveBeenCalledWith(message.playerNo)
         expect(reports.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-            reportId: message.reportId,
-            playerNo: message.playerNo,
-            status: 'completed',
-            completedAt: expect.any(Date),
-            requestedAt: expect.any(Date),
-            result: {
-                scouting: { ...scoutingResult },
-                analysis: { ...analysis },
-                seniorEvaluation: null,
-            },
-        }),
+            expect.objectContaining({
+                reportId: message.reportId,
+                playerNo: message.playerNo,
+                status: 'completed',
+                completedAt: expect.any(Date),
+                requestedAt: expect.any(Date),
+                result: {
+                    scouting: { ...scoutingResult },
+                    analysis: { ...analysis },
+                    seniorEvaluation: null,
+                },
+            }),
         );
+        const expectedInput: ScoutingAnalysisInput = {
+            scouting: scoutingResult,
+            policies: [
+                {
+                    id: 'promotion',
+                    text: 'Promotion requires evidence of senior match performance.',
+                },
+            ],
+        };
+
+        expect(llm.analyseScoutingReport).toHaveBeenCalledWith(expectedInput);
     });
 
     it('skips processing when the report is already completed', async () => {

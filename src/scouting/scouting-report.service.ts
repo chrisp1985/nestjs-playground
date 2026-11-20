@@ -8,6 +8,8 @@ import type { ScoutingRequestMessage } from '../sqs/messages/scouting-request.me
 import { LlmService } from '../llm/llm.service.js';
 import { parseScoutingAnalysis } from '../llm/dto/scouting-analysis.dto.js';
 import { SeniorScoutingEvaluationService } from './senior-scouting-evaluation.service.js';
+import { rankPolicies } from './training-policy-retrieval.js';
+import { TRAINING_POLICIES } from './training-policy-catalogue.js';
 
 @Injectable()
 export class ScoutingReportService {
@@ -30,11 +32,17 @@ export class ScoutingReportService {
       return;
     }
 
+    const policies = rankPolicies('promotion evidence', TRAINING_POLICIES);
+
     const result = await this.scouting.findOne(
       message.playerNo,
     );
 
-    const rawAnalysis = await this.llm.analyseScoutingReport(result);
+    const rawAnalysis = await this.llm.analyseScoutingReport({
+      scouting: result,
+      policies: policies
+    });
+    
     const analysis = parseScoutingAnalysis(rawAnalysis);
 
     const seniorEvaluation = await this.seniorScouting.evaluate(message.playerNo);

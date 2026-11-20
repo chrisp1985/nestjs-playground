@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { ScoutingResponse } from '../scouting/dto/scouting-response.dto.js';
 import { SeniorScoutingEvaluation, SeniorScoutingEvaluationInput } from './dto/senior-scouting-evaluation.dto.js';
+import type { ScoutingAnalysisInput } from './dto/scouting-analysis-input.dto.js';
 
 @Injectable()
 export abstract class LlmService {
-abstract analyseScoutingReport(scouting: ScoutingResponse): Promise<unknown>;
+abstract analyseScoutingReport(input: ScoutingAnalysisInput): Promise<unknown>;
 abstract evaluateSeniorPlayer(
   input: SeniorScoutingEvaluationInput,
 ): Promise<SeniorScoutingEvaluation>;
